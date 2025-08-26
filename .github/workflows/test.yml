@@ -1,0 +1,147 @@
+name: Tests
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main, develop ]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+
+    strategy:
+      matrix:
+        node-version: [16.x, 18.x, 20.x]
+
+    services:
+      minio:
+        image: minio/minio:latest
+        ports:
+          - 9000:9000
+          - 9001:9001
+        env:
+          MINIO_ROOT_USER: minioadmin
+          MINIO_ROOT_PASSWORD: minioadmin
+        options: >-
+          --health-cmd "curl -f http://localhost:9000/minio/health/live"
+          --health-interval 30s
+          --health-timeout 20s
+          --health-retries 3
+        volumes:
+          - /tmp/minio-data:/data
+        command: server /data --console-address ":9001"
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Use Node.js ${{ matrix.node-version }}
+      uses: actions/setup-node@v4
+      with:
+        node-version: ${{ matrix.node-version }}
+        cache: 'npm'
+
+    - name: Install dependencies
+      run: npm ci
+
+    - name: Wait for MinIO to be ready
+      run: |
+        timeout 60 bash -c 'until curl -f http://localhost:9000/minio/health/live; do sleep 2; done'
+
+    - name: Run unit tests
+      run: npm run test -- --testPathIgnorePatterns=e2e
+      env:
+        NODE_ENV: test
+        MINIO_ENDPOINT: localhost
+        MINIO_PORT: 9000
+        MINIO_ACCESS_KEY: minioadmin
+        MINIO_SECRET_KEY: minioadmin
+        MINIO_BUCKET_NAME: test-bucket
+
+    - name: Run integration tests
+      run: npm run test:integration
+      env:
+        NODE_ENV: test
+        MINIO_ENDPOINT: localhost
+        MINIO_PORT: 9000
+        MINIO_ACCESS_KEY: minioadmin
+        MINIO_SECRET_KEY: minioadmin
+        MINIO_BUCKET_NAME: test-bucket
+
+    - name: Run E2E tests
+      run: npm test -- --testPathPattern=e2e
+      env:
+        NODE_ENV: test
+        MINIO_ENDPOINT: localhost
+        MINIO_PORT: 9000
+        MINIO_ACCESS_KEY: minioadmin
+        MINIO_SECRET_KEY: minioadmin
+        MINIO_BUCKET_NAME: test-e2e-bucket
+        SKIP_E2E_TESTS: false
+
+    - name: Generate coverage report
+      run: npm run test:coverage
+      env:
+        NODE_ENV: test
+
+    - name: Upload coverage to Codecov
+      uses: codecov/codecov-action@v3
+      with:
+        file: ./coverage/lcov.info
+        flags: unittests
+        name: codecov-umbrella
+        fail_ci_if_error: false
+
+  lint:
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Use Node.js 18.x
+      uses: actions/setup-node@v4
+      with:
+        node-version: 18.x
+        cache: 'npm'
+
+    - name: Install dependencies
+      run: npm ci
+
+    - name: Run ESLint (if configured)
+      run: |
+        if [ -f .eslintrc.js ] || [ -f .eslintrc.json ]; then
+          npx eslint src/ --ext .js
+        else
+          echo "ESLint not configured, skipping..."
+        fi
+      continue-on-error: true
+
+  security:
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Use Node.js 18.x
+      uses: actions/setup-node@v4
+      with:
+        node-version: 18.x
+        cache: 'npm'
+
+    - name: Install dependencies
+      run: npm ci
+
+    - name: Run security audit
+      run: npm audit --audit-level moderate
+
+    - name: Check for vulnerabilities
+      run: |
+        if command -v snyk &> /dev/null; then
+          snyk test
+        else
+          echo "Snyk not available, skipping vulnerability check"
+        fi
+      continue-on-error: true
