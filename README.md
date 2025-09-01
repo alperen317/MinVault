@@ -1,4 +1,4 @@
-# [PROJECT_NAME] - File Upload Service
+# [MinValult] - File Upload Service
 
 A production-ready Node.js backend service for uploading videos and files to a self-hosted MinIO server with S3 API compatibility.
 
