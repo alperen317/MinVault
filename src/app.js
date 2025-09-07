@@ -10,7 +10,7 @@ const fileRoutes = require('./routes/fileRoutes');
 const { errorHandler, notFoundHandler } = require('./middleware/errorHandler');
 
 const app = express();
-
+app.set('trust proxy', true);
 // Security middleware
 app.use(helmet());
 
